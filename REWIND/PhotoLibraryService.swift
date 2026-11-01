@@ -1,3 +1,5 @@
+import Foundation
+import Observation
 import Photos
 import UIKit
 import AVFoundation
@@ -8,7 +10,8 @@ struct AssetRef: Hashable {
     let isVideo: Bool
 }
 
-@MainActor @Observable
+@MainActor
+@Observable
 final class PhotoLibraryService {
     var status: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     var hasAccess: Bool { status == .authorized || status == .limited }
@@ -16,7 +19,11 @@ final class PhotoLibraryService {
     @ObservationIgnored private let imageCache = NSCache<NSString, UIImage>()
     @ObservationIgnored private let geocoder = CLGeocoder()
 
-    func refreshStatus() { status = PHPhotoLibrary.authorizationStatus(for: .readWrite) }
+    init() {}
+
+    func refreshStatus() {
+        status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    }
 
     func requestAccess() async {
         status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
@@ -25,44 +32,55 @@ final class PhotoLibraryService {
     // MARK: Consultas
 
     private func fetch(_ interval: DateInterval) -> PHFetchResult<PHAsset> {
-        guard hasAccess else { return PHAsset.fetchAssets(withLocalIdentifiers: [], options: nil) }
-        let o = PHFetchOptions()
-        o.predicate = NSPredicate(
+        guard hasAccess else {
+            return PHAsset.fetchAssets(withLocalIdentifiers: [], options: nil)
+        }
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(
             format: "(mediaType == %ld OR mediaType == %ld) AND creationDate >= %@ AND creationDate < %@",
-            PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue,
-            interval.start as NSDate, interval.end as NSDate)
-        o.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-        return PHAsset.fetchAssets(with: o)
+            PHAssetMediaType.image.rawValue,
+            PHAssetMediaType.video.rawValue,
+            interval.start as NSDate,
+            interval.end as NSDate)
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+        return PHAsset.fetchAssets(with: options)
     }
 
     func assets(in interval: DateInterval) -> [PHAsset] {
-        let r = fetch(interval)
+        let result = fetch(interval)
         var out: [PHAsset] = []
-        out.reserveCapacity(r.count)
-        r.enumerateObjects { a, _, _ in out.append(a) }
+        out.reserveCapacity(result.count)
+        result.enumerateObjects { asset, _, _ in
+            out.append(asset)
+        }
         return out
     }
 
     func refs(in interval: DateInterval) -> [AssetRef] {
-        let r = fetch(interval)
+        let result = fetch(interval)
         var out: [AssetRef] = []
-        out.reserveCapacity(r.count)
-        r.enumerateObjects { a, _, _ in out.append(AssetRef(id: a.localIdentifier, isVideo: a.mediaType == .video)) }
+        out.reserveCapacity(result.count)
+        result.enumerateObjects { asset, _, _ in
+            out.append(AssetRef(id: asset.localIdentifier, isVideo: asset.mediaType == .video))
+        }
         return out
     }
 
+    /// Tamaño del recurso principal. "fileSize" no es API pública documentada; si falla devuelve 0.
     nonisolated static func fileSize(_ asset: PHAsset) -> Int64 {
-        // "fileSize" no es API pública documentada pero es de uso muy extendido; si falla, devuelve 0.
-        guard let res = PHAssetResource.assetResources(for: asset).first else { return 0 }
-        return (res.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0
+        guard let resource = PHAssetResource.assetResources(for: asset).first else { return 0 }
+        let value = resource.value(forKey: "fileSize") as? NSNumber
+        return value?.int64Value ?? 0
     }
 
     func totalSize(of ids: [String]) async -> Int64 {
         guard !ids.isEmpty else { return 0 }
-        return await Task.detached(priority: .utility) {
-            let r = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        return await Task.detached(priority: .utility) { () -> Int64 in
+            let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
             var total: Int64 = 0
-            r.enumerateObjects { a, _, _ in total += PhotoLibraryService.fileSize(a) }
+            result.enumerateObjects { asset, _, _ in
+                total += PhotoLibraryService.fileSize(asset)
+            }
             return total
         }.value
     }
@@ -70,39 +88,45 @@ final class PhotoLibraryService {
     // MARK: Carga de medios (miniaturas bajo demanda, sin copias en disco)
 
     func image(for asset: PHAsset, size: CGSize) async -> UIImage? {
-        let key = "\(asset.localIdentifier)-\(Int(size.width))" as NSString
+        let key = NSString(string: "\(asset.localIdentifier)-\(Int(size.width))")
         if let cached = imageCache.object(forKey: key) { return cached }
-        let img: UIImage? = await withCheckedContinuation { cont in
-            let o = PHImageRequestOptions()
-            o.deliveryMode = .highQualityFormat
-            o.resizeMode = .fast
-            o.isNetworkAccessAllowed = true   // fotos en iCloud
-            PHImageManager.default().requestImage(for: asset, targetSize: size,
-                                                  contentMode: .aspectFit, options: o) { image, _ in
-                cont.resume(returning: image)
+
+        let loaded: UIImage? = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = true   // fotos en iCloud
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: size,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                continuation.resume(returning: image)
             }
         }
-        if let img { imageCache.setObject(img, forKey: key) }
-        return img
+        if let loaded { imageCache.setObject(loaded, forKey: key) }
+        return loaded
     }
 
     func playerItem(for asset: PHAsset) async -> AVPlayerItem? {
-        await withCheckedContinuation { cont in
-            let o = PHVideoRequestOptions()
-            o.isNetworkAccessAllowed = true
-            o.deliveryMode = .automatic
-            PHImageManager.default().requestPlayerItem(forVideo: asset, options: o) { item, _ in
-                cont.resume(returning: item)
+        let item: AVPlayerItem? = await withCheckedContinuation { (continuation: CheckedContinuation<AVPlayerItem?, Never>) in
+            let options = PHVideoRequestOptions()
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = .automatic
+            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { playerItem, _ in
+                continuation.resume(returning: playerItem)
             }
         }
+        return item
     }
 
     func placeName(for asset: PHAsset) async -> String? {
-        guard let loc = asset.location else { return nil }
-        let marks = try? await geocoder.reverseGeocodeLocation(loc)
-        guard let m = marks?.first else { return nil }
-        let s = [m.locality, m.country].compactMap { $0 }.joined(separator: ", ")
-        return s.isEmpty ? nil : s
+        guard let location = asset.location else { return nil }
+        let marks = try? await geocoder.reverseGeocodeLocation(location)
+        guard let mark = marks?.first else { return nil }
+        let text = [mark.locality, mark.country].compactMap { $0 }.joined(separator: ", ")
+        return text.isEmpty ? nil : text
     }
 
     // MARK: Borrado (solo tras confirmación explícita en la UI)
@@ -110,14 +134,18 @@ final class PhotoLibraryService {
     /// iOS muestra su propio diálogo de autorización. Los elementos van a "Eliminados recientemente".
     func delete(assetIDs: [String]) async throws {
         try await PHPhotoLibrary.shared().performChanges {
-            let r = PHAsset.fetchAssets(withLocalIdentifiers: assetIDs, options: nil)
-            PHAssetChangeRequest.deleteAssets(r)
+            let result = PHAsset.fetchAssets(withLocalIdentifiers: assetIDs, options: nil)
+            var list: [PHAsset] = []
+            result.enumerateObjects { asset, _, _ in
+                list.append(asset)
+            }
+            PHAssetChangeRequest.deleteAssets(list as NSArray)
         }
     }
 
     func presentLimitedPicker() {
-        guard let vc = UIApplication.shared.connectedScenes
-            .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else { return }
-        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: vc)
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let root = scenes.compactMap({ $0.keyWindow?.rootViewController }).first else { return }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: root)
     }
 }
