@@ -27,7 +27,8 @@ workflows:
 
       - name: Compilar para simulador iOS (sin firma)
         script: |
-          set -o pipefail
+          mkdir -p build
+          set +e
           xcodebuild build \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
@@ -36,11 +37,27 @@ workflows:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/DerivedData-sim \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            2>&1 | tee build/xcodebuild-simulator.log
+            > build/xcodebuild-simulator.log 2>&1
+          STATUS=$?
+          set -e
+          if [ $STATUS -ne 0 ]; then
+            echo "=============== COMANDOS QUE FALLARON ==============="
+            grep -A12 "The following build commands failed" build/xcodebuild-simulator.log | head -40
+            echo "=============== ERRORES DEL COMPILADOR (resumen) ==============="
+            grep "error:" build/xcodebuild-simulator.log | sort -u | head -100
+            echo "=============== ¿CIERRE INESPERADO DEL COMPILADOR? ==============="
+            grep -n -i "stack dump\|please submit a bug\|swift-frontend.*crash\|segmentation fault\|assertion failed" build/xcodebuild-simulator.log | head -20 || true
+            echo "=============== ÚLTIMAS 120 LÍNEAS ==============="
+            tail -n 120 build/xcodebuild-simulator.log
+            echo "=============== CONTEXTO DE LOS ERRORES ==============="
+            grep -B2 -A8 "error:" build/xcodebuild-simulator.log | head -400
+            exit $STATUS
+          fi
+          tail -n 5 build/xcodebuild-simulator.log
 
       - name: Compilar para dispositivo (sin firma) y empaquetar IPA sin firmar
         script: |
-          set -o pipefail
+          set +e
           xcodebuild build \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
@@ -49,7 +66,22 @@ workflows:
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData-device \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            2>&1 | tee build/xcodebuild-device.log
+            > build/xcodebuild-device.log 2>&1
+          STATUS=$?
+          set -e
+          if [ $STATUS -ne 0 ]; then
+            echo "=============== COMANDOS QUE FALLARON ==============="
+            grep -A12 "The following build commands failed" build/xcodebuild-device.log | head -40
+            echo "=============== ERRORES DEL COMPILADOR (resumen) ==============="
+            grep "error:" build/xcodebuild-device.log | sort -u | head -100
+            echo "=============== ¿CIERRE INESPERADO DEL COMPILADOR? ==============="
+            grep -n -i "stack dump\|please submit a bug\|swift-frontend.*crash\|segmentation fault\|assertion failed" build/xcodebuild-device.log | head -20 || true
+            echo "=============== ÚLTIMAS 120 LÍNEAS ==============="
+            tail -n 120 build/xcodebuild-device.log
+            echo "=============== CONTEXTO DE LOS ERRORES ==============="
+            grep -B2 -A8 "error:" build/xcodebuild-device.log | head -400
+            exit $STATUS
+          fi
           APP_PATH=$(find build/DerivedData-device/Build/Products -maxdepth 3 -name "REWIND.app" | head -n 1)
           test -n "$APP_PATH" || { echo "No se encontró REWIND.app"; exit 1; }
           mkdir -p build/ipa/Payload
