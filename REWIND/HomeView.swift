@@ -28,7 +28,12 @@ struct HomeView: View {
     private func pending(_ d: DayInfo) -> [AssetRef] { d.refs.filter { !decidedIDs.contains($0.id) } }
     private var today: DayInfo? { days.first }
     private var todayPending: [AssetRef] { today.map(pending) ?? [] }
-    private var backlog: [DayInfo] { days.dropFirst().filter { !pending($0).isEmpty } }
+    /// Elementos ya deslizados a la izquierda cuyo borrado aún no se ha confirmado.
+    private var markedIDs: Set<String> { Set(decisions.filter { !$0.keep && !$0.deleted }.map(\.assetID)) }
+    private func awaitingConfirmation(_ d: DayInfo) -> Int { d.refs.filter { markedIDs.contains($0.id) }.count }
+    private var backlog: [DayInfo] {
+        days.dropFirst().filter { !pending($0).isEmpty || awaitingConfirmation($0) > 0 }
+    }
 
     var body: some View {
         NavigationStack {
@@ -74,6 +79,11 @@ struct HomeView: View {
         let refs = todayPending
         let photos = refs.filter { !$0.isVideo }.count
         let videos = refs.count - photos
+        let toConfirm = today.map(awaitingConfirmation) ?? 0
+        let buttonTitle: String
+        if !refs.isEmpty { buttonTitle = "EMPEZAR LIMPIEZA" }
+        else if toConfirm > 0 { buttonTitle = "REVISAR RESUMEN" }
+        else { buttonTitle = "NADA PENDIENTE HOY" }
         let review = DateRules.reviewInterval(for: Date()).start
         return VStack(alignment: .leading, spacing: 14) {
             Label {
@@ -88,11 +98,11 @@ struct HomeView: View {
                 Text("Espacio potencialmente recuperable: hasta \(freeable.byteString)")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            Button(refs.isEmpty ? "NADA PENDIENTE HOY" : "EMPEZAR LIMPIEZA") {
+            Button(buttonTitle) {
                 Haptics.tap(); target = ReviewTarget(reference: Date())
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(refs.isEmpty || !library.hasAccess)
+            .disabled((refs.isEmpty && toConfirm == 0) || !library.hasAccess)
         }
         .padding(18)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -107,7 +117,7 @@ struct HomeView: View {
                         VStack(alignment: .leading) {
                             Text(DateRules.reviewInterval(for: d.reference).start,
                                  format: .dateTime.day().month(.wide).year())
-                            Text("\(pending(d).count) elementos").font(.footnote).foregroundStyle(.secondary)
+                            Text(rowSubtitle(d)).font(.footnote).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(.secondary)
@@ -152,6 +162,14 @@ struct HomeView: View {
         }
         .padding(12)
         .background(Color.rwPurple.opacity(0.15), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func rowSubtitle(_ d: DayInfo) -> String {
+        let p = pending(d).count
+        let c = awaitingConfirmation(d)
+        if p > 0 && c > 0 { return "\(p) elementos · \(c) por confirmar" }
+        if p > 0 { return "\(p) elementos" }
+        return "\(c) por confirmar"
     }
 
     private func reload() {
