@@ -10,6 +10,8 @@ struct AssetRef: Hashable {
     let isVideo: Bool
 }
 
+/// Acceso a la biblioteca de Fotos (PhotoKit). Todo se ejecuta en el hilo principal;
+/// las llamadas pesadas de PhotoKit (carga de imágenes) son asíncronas por sí mismas.
 @MainActor
 @Observable
 final class PhotoLibraryService {
@@ -18,8 +20,6 @@ final class PhotoLibraryService {
 
     @ObservationIgnored private let imageCache = NSCache<NSString, UIImage>()
     @ObservationIgnored private let geocoder = CLGeocoder()
-
-    init() {}
 
     func refreshStatus() {
         status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -67,7 +67,7 @@ final class PhotoLibraryService {
     }
 
     /// Tamaño del recurso principal. "fileSize" no es API pública documentada; si falla devuelve 0.
-    nonisolated static func fileSize(_ asset: PHAsset) -> Int64 {
+    static func fileSize(_ asset: PHAsset) -> Int64 {
         guard let resource = PHAssetResource.assetResources(for: asset).first else { return 0 }
         let value = resource.value(forKey: "fileSize") as? NSNumber
         return value?.int64Value ?? 0
@@ -75,14 +75,16 @@ final class PhotoLibraryService {
 
     func totalSize(of ids: [String]) async -> Int64 {
         guard !ids.isEmpty else { return 0 }
-        return await Task.detached(priority: .utility) { () -> Int64 in
-            let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
-            var total: Int64 = 0
-            result.enumerateObjects { asset, _, _ in
-                total += PhotoLibraryService.fileSize(asset)
-            }
-            return total
-        }.value
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        var total: Int64 = 0
+        var index = 0
+        let count = assets.count
+        while index < count {
+            total += PhotoLibraryService.fileSize(assets.object(at: index))
+            index += 1
+            if index % 40 == 0 { await Task.yield() }   // no bloquear la interfaz
+        }
+        return total
     }
 
     // MARK: Carga de medios (miniaturas bajo demanda, sin copias en disco)
@@ -93,9 +95,9 @@ final class PhotoLibraryService {
 
         let loaded: UIImage? = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
             let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
+            options.deliveryMode = .highQualityFormat   // un único callback
             options.resizeMode = .fast
-            options.isNetworkAccessAllowed = true   // fotos en iCloud
+            options.isNetworkAccessAllowed = true       // fotos en iCloud
             PHImageManager.default().requestImage(
                 for: asset,
                 targetSize: size,
