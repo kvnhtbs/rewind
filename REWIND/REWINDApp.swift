@@ -4,21 +4,12 @@ import SwiftData
 @main
 struct REWINDApp: App {
     @State private var library = PhotoLibraryService()
-    private let container: ModelContainer
-
-    init() {
-        do {
-            container = try ModelContainer(for: CleanupSession.self, Decision.self)
-        } catch {
-            fatalError("No se pudo crear el almacén SwiftData: \(error)")
-        }
-    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(library)
-                .modelContainer(container)
         }
+        .modelContainer(for: [CleanupSession.self, Decision.self])
     }
 }
