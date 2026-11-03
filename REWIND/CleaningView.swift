@@ -268,6 +268,7 @@ struct SummaryView: View {
     let onNextYear: (Int) -> Void
     @State private var confirming = false
     @State private var working = false
+    @State private var showKept = false
     @State private var resultText: String?
     @State private var nextYear: Int?
     @State private var nextYearChecked = false
@@ -305,21 +306,36 @@ struct SummaryView: View {
                 }
                 let kept = controller.keptAssets
                 if !kept.isEmpty {
-                    section("Conservados", "Toca uno para marcarlo para eliminar", kept, .rwKeep)
+                    DisclosureGroup(isExpanded: $showKept) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Toca uno para marcarlo para eliminar").font(.caption).foregroundStyle(.secondary)
+                            thumbGrid(kept)
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Text("Conservados (\(kept.count))").font(.headline).foregroundStyle(Color.rwKeep)
+                    }
                 }
                 if let r = resultText { Text(r).font(.footnote).foregroundStyle(.secondary) }
                 if let e = controller.lastError { Text(e).font(.footnote).foregroundStyle(Color.rwDelete) }
 
                 if marked.isEmpty {
                     finishedBlock
-                } else {
-                    Button("CONFIRMAR LIMPIEZA") { confirming = true }
-                        .buttonStyle(PrimaryButtonStyle()).disabled(working)
                 }
                 Button("Reiniciar sesión") { controller.restart() }
                     .frame(maxWidth: .infinity).foregroundStyle(.secondary)
             }
             .padding()
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !marked.isEmpty {
+                Button("CONFIRMAR LIMPIEZA") { confirming = true }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(working)
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+            }
         }
         .task { await NotificationService.requestIfNeeded() }   // permiso contextual
         .task(id: marked.isEmpty) {
@@ -402,10 +418,14 @@ struct SummaryView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.headline).foregroundStyle(color)
             Text(hint).font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                ForEach(list, id: \.localIdentifier) { a in
-                    ThumbView(asset: a).onTapGesture { Haptics.tap(); controller.toggle(a) }
-                }
+            thumbGrid(list)
+        }
+    }
+
+    private func thumbGrid(_ list: [PHAsset]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+            ForEach(list, id: \.localIdentifier) { a in
+                ThumbView(asset: a).onTapGesture { Haptics.tap(); controller.toggle(a) }
             }
         }
     }
