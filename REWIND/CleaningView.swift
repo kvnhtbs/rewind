@@ -10,6 +10,12 @@ struct CleaningView: View {
     @Environment(\.modelContext) private var context
     @Environment(PhotoLibraryService.self) private var library
     @State private var controller: SessionController?
+    @State private var yearsBack: Int
+
+    init(referenceDay: Date, yearsBack: Int = 1) {
+        self.referenceDay = referenceDay
+        _yearsBack = State(initialValue: yearsBack)
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,7 +25,7 @@ struct CleaningView: View {
                         ContentUnavailableView("Sin recuerdos", systemImage: "photo.on.rectangle",
                                                description: Text("No hay fotos ni vídeos de ese día."))
                     } else if c.pending.isEmpty {
-                        SummaryView(controller: c, onDone: { dismiss() })
+                        SummaryView(controller: c, onDone: { dismiss() }, onNextYear: { yearsBack = $0 })
                     } else {
                         SwipeDeck(controller: c)
                     }
@@ -30,7 +36,10 @@ struct CleaningView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Pausar") { dismiss() } }
                 ToolbarItem(placement: .principal) {
                     if let c = controller {
-                        Text(c.interval.start, format: .dateTime.day().month(.abbreviated).year()).font(.headline)
+                        VStack(spacing: 0) {
+                            Text(c.interval.start, format: .dateTime.day().month(.abbreviated).year()).font(.headline)
+                            Text(c.yearsAgoText).font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
@@ -41,9 +50,14 @@ struct CleaningView: View {
                 }
             }
         }
-        .task {
-            let c = SessionController(referenceDay: referenceDay, library: library, context: context)
+        .task(id: yearsBack) {
+            controller = nil
+            let c = SessionController(referenceDay: referenceDay, yearsBack: yearsBack, library: library, context: context)
             c.load()
+            if c.assets.isEmpty, let older = c.nextYearWithMemories() {
+                yearsBack = older   // salta automáticamente los años sin recuerdos
+                return
+            }
             controller = c
         }
     }
@@ -114,10 +128,12 @@ struct SwipeDeck: View {
 
     private var stamp: some View {
         let p = max(-1, min(1, offset.width / 120))
+        let isFavorite = controller.pending.first?.isFavorite ?? false
+        let leftText: String = isFavorite ? "Favorito: marcado para eliminar" : "Marcado para eliminar"
         return ZStack {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill((p > 0 ? Color.rwKeep : Color.rwDelete).opacity(0.4))
-            Label(p > 0 ? "¡Guardado!" : "Marcado para eliminar",
+            Label(p > 0 ? "¡Guardado!" : leftText,
                   systemImage: p > 0 ? "heart.fill" : "trash.fill")
                 .font(.title2.bold()).foregroundStyle(.white)
                 .padding(.horizontal, 20).padding(.vertical, 12)
@@ -150,7 +166,8 @@ struct SwipeDeck: View {
             t.disablesAnimations = true
             withTransaction(t) { offset = .zero }
             flying = false
-            let f = Flash(text: keep ? "¡Guardado!" : "Marcado para eliminar", keep: keep)
+            let leftText: String = top.isFavorite ? "Favorito marcado para eliminar" : "Marcado para eliminar"
+            let f = Flash(text: keep ? "¡Guardado!" : leftText, keep: keep)
             withAnimation(.spring) { flash = f }
             try? await Task.sleep(for: .milliseconds(900))
             if flash == f { withAnimation { flash = nil } }
@@ -182,6 +199,15 @@ struct MediaCard: View {
             }
         }
         .overlay(alignment: .bottom) { info }
+        .overlay(alignment: .topTrailing) {
+            if asset.isFavorite {
+                Label("Favorito", systemImage: "heart.fill")
+                    .font(.caption.bold()).foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Color.pink, in: Capsule())
+                    .padding(14)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
         .contentShape(RoundedRectangle(cornerRadius: 28))
@@ -239,12 +265,23 @@ struct MediaCard: View {
 struct SummaryView: View {
     let controller: SessionController
     let onDone: () -> Void
+    let onNextYear: (Int) -> Void
     @State private var confirming = false
     @State private var working = false
     @State private var resultText: String?
+    @State private var nextYear: Int?
+    @State private var nextYearChecked = false
 
     var body: some View {
         let marked = controller.markedAssets
+        let total = controller.markedCount
+        let favoriteCount = controller.markedFavoriteCount
+        let keepLabel: String = total > favoriteCount
+            ? "Eliminar solo \(total - favoriteCount) y conservar los favoritos"
+            : "Conservar los favoritos y no eliminar nada"
+        let dialogMessage: String = favoriteCount > 0
+            ? "\(favoriteCount) de ellos son favoritos ♥ de Apple Fotos. Elige si quieres eliminarlos también. iOS te pedirá autorización y podrás recuperarlos desde «Eliminados recientemente» durante 30 días."
+            : "iOS te pedirá autorización. Podrás recuperarlos desde «Eliminados recientemente» durante 30 días."
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Resumen").font(.largeTitle.bold())
@@ -258,6 +295,11 @@ struct SummaryView: View {
                     Text("Espacio que se podría liberar: hasta \(controller.markedBytes.byteString)")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                if favoriteCount > 0 {
+                    Label("\(favoriteCount) favoritos de Apple Fotos entre los seleccionados (con ♥). Se te pedirá confirmación expresa para eliminarlos.",
+                          systemImage: "heart.fill")
+                        .font(.footnote.bold()).foregroundStyle(.pink)
+                }
                 if !marked.isEmpty {
                     section("Seleccionados para eliminar", "Toca uno para conservarlo", marked, .rwDelete)
                 }
@@ -268,8 +310,8 @@ struct SummaryView: View {
                 if let r = resultText { Text(r).font(.footnote).foregroundStyle(.secondary) }
                 if let e = controller.lastError { Text(e).font(.footnote).foregroundStyle(Color.rwDelete) }
 
-                if marked.isEmpty || resultText != nil {
-                    Button("TERMINAR", action: onDone).buttonStyle(PrimaryButtonStyle())
+                if marked.isEmpty {
+                    finishedBlock
                 } else {
                     Button("CONFIRMAR LIMPIEZA") { confirming = true }
                         .buttonStyle(PrimaryButtonStyle()).disabled(working)
@@ -280,23 +322,80 @@ struct SummaryView: View {
             .padding()
         }
         .task { await NotificationService.requestIfNeeded() }   // permiso contextual
-        .confirmationDialog("¿Eliminar \(controller.markedCount) elementos?",
+        .task(id: marked.isEmpty) {
+            nextYear = nil
+            nextYearChecked = false
+            if marked.isEmpty {
+                nextYear = controller.nextYearWithMemories()
+                nextYearChecked = true
+            }
+        }
+        .confirmationDialog("¿Eliminar \(total) elementos?",
                             isPresented: $confirming, titleVisibility: .visible) {
-            Button("Eliminar \(controller.markedCount)", role: .destructive) {
-                Task {
-                    working = true
-                    let bytes = controller.markedBytes, n = controller.markedCount
-                    if await controller.confirmDeletion() {
-                        resultText = "Listo: \(n) elementos enviados a «Eliminados recientemente» (\(bytes.byteString)). El espacio se libera del todo cuando esa carpeta se vacía (a los 30 días o manualmente)."
-                        Haptics.keep()
-                    }
-                    working = false
+            if favoriteCount > 0 {
+                Button("Eliminar los \(total) (incluye \(favoriteCount) favoritos)", role: .destructive) {
+                    run(includeFavorites: true)
                 }
+                Button(keepLabel) { run(includeFavorites: false) }
+            } else {
+                Button("Eliminar \(total)", role: .destructive) { run(includeFavorites: false) }
             }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("iOS te pedirá autorización. Podrás recuperarlos desde «Eliminados recientemente» durante 30 días.")
+            Text(dialogMessage)
         }
+    }
+
+    /// Limpieza terminada: pregunta dentro de la app si se quiere revisar otro año atrás.
+    private var finishedBlock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let n = nextYear {
+                Text("¿Quieres revisar otro año atrás?").font(.headline)
+                Text("Hay recuerdos de este día en \(yearLabel(n)).")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Sí, revisar \(yearLabel(n))") { Haptics.tap(); onNextYear(n) }
+                    .buttonStyle(PrimaryButtonStyle())
+                Button("No, terminar", action: onDone)
+                    .frame(maxWidth: .infinity).foregroundStyle(.secondary)
+            } else {
+                if nextYearChecked {
+                    Text("No hay más años anteriores con recuerdos de este día en tu biblioteca.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Button("TERMINAR", action: onDone).buttonStyle(PrimaryButtonStyle())
+            }
+        }
+    }
+
+    private func yearLabel(_ n: Int) -> String {
+        let year = controller.year(yearsBack: n)
+        let unit = n == 1 ? "año" : "años"
+        return "\(year) (hace \(n) \(unit))"
+    }
+
+    private func run(includeFavorites: Bool) {
+        Task {
+            working = true
+            if let outcome = await controller.confirmDeletion(includeFavorites: includeFavorites) {
+                resultText = describe(outcome)
+                if outcome.deleted > 0 { Haptics.keep() }
+            }
+            working = false
+        }
+    }
+
+    private func describe(_ o: SessionController.DeletionOutcome) -> String {
+        var parts: [String] = []
+        if o.deleted > 0 {
+            parts.append("Listo: \(o.deleted) elementos enviados a «Eliminados recientemente» (\(o.deletedBytes.byteString)). El espacio se libera del todo cuando esa carpeta se vacía (a los 30 días o manualmente).")
+        }
+        if o.keptFavorites > 0 {
+            parts.append("\(o.keptFavorites) favoritos se han conservado (no se eliminaron).")
+        }
+        if o.unverified > 0 {
+            parts.append("\(o.unverified) elementos no se pudieron verificar y NO se han eliminado; siguen marcados para que puedas reintentarlo.")
+        }
+        return parts.isEmpty ? "No se ha eliminado nada." : parts.joined(separator: "\n")
     }
 
     private func section(_ title: String, _ hint: String, _ list: [PHAsset], _ color: Color) -> some View {
@@ -322,6 +421,11 @@ struct ThumbView: View {
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 if let image { Image(uiImage: image).resizable().scaledToFill() }
+            }
+            .overlay(alignment: .topLeading) {
+                if asset.isFavorite {
+                    Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink).padding(4)
+                }
             }
             .overlay(alignment: .bottomTrailing) {
                 if asset.mediaType == .video {

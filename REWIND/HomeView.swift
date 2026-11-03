@@ -8,9 +8,17 @@ private struct DayInfo: Identifiable {
     var id: Int { offset }
 }
 
+private struct YearInfo: Identifiable {
+    let yearsBack: Int
+    let year: Int
+    let refs: [AssetRef]
+    var id: Int { yearsBack }
+}
+
 private struct ReviewTarget: Identifiable {
     let id = UUID()
     let reference: Date
+    var yearsBack: Int = 1
 }
 
 @MainActor
@@ -20,6 +28,7 @@ struct HomeView: View {
     @Query private var decisions: [Decision]
     @AppStorage(Keys.userName) private var userName = ""
     @State private var days: [DayInfo] = []
+    @State private var years: [YearInfo] = []
     @State private var freeable: Int64 = 0
     @State private var target: ReviewTarget?
     let onSessionEnd: () -> Void
@@ -34,6 +43,8 @@ struct HomeView: View {
     private var backlog: [DayInfo] {
         days.dropFirst().filter { !pending($0).isEmpty || awaitingConfirmation($0) > 0 }
     }
+    private func pendingCount(_ refs: [AssetRef]) -> Int { refs.filter { !decidedIDs.contains($0.id) }.count }
+    private func awaitingCount(_ refs: [AssetRef]) -> Int { refs.filter { markedIDs.contains($0.id) }.count }
 
     var body: some View {
         NavigationStack {
@@ -44,6 +55,7 @@ struct HomeView: View {
                     if !library.hasAccess { deniedBanner }
                     todayCard
                     if !backlog.isEmpty { backlogSection }
+                    if !years.isEmpty { otherYearsSection }
                     yearProgress
                     StatsGrid(stats: StatsData(decisions: decisions))
                 }
@@ -55,7 +67,7 @@ struct HomeView: View {
         .task { reload() }
         .onChange(of: scenePhase) { _, p in if p == .active { reload() } }
         .fullScreenCover(item: $target, onDismiss: { reload(); onSessionEnd() }) { t in
-            CleaningView(referenceDay: t.reference)
+            CleaningView(referenceDay: t.reference, yearsBack: t.yearsBack)
         }
     }
 
@@ -80,10 +92,17 @@ struct HomeView: View {
         let photos = refs.filter { !$0.isVideo }.count
         let videos = refs.count - photos
         let toConfirm = today.map(awaitingConfirmation) ?? 0
+        let fallback: YearInfo? = (refs.isEmpty && toConfirm == 0)
+            ? years.first(where: { pendingCount($0.refs) > 0 || awaitingCount($0.refs) > 0 }) : nil
+        let startYears = fallback?.yearsBack ?? 1
         let buttonTitle: String
         if !refs.isEmpty { buttonTitle = "EMPEZAR LIMPIEZA" }
         else if toConfirm > 0 { buttonTitle = "REVISAR RESUMEN" }
+        else if fallback != nil { buttonTitle = "EMPEZAR LIMPIEZA" }
         else { buttonTitle = "NADA PENDIENTE HOY" }
+        let fallbackNote: String? = fallback.map {
+            "No hay recuerdos pendientes de hace un año. Empezaremos por \(String($0.year))."
+        }
         let review = DateRules.reviewInterval(for: Date()).start
         return VStack(alignment: .leading, spacing: 14) {
             Label {
@@ -98,11 +117,14 @@ struct HomeView: View {
                 Text("Espacio potencialmente recuperable: hasta \(freeable.byteString)")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            if let fallbackNote {
+                Text(fallbackNote).font(.footnote).foregroundStyle(.secondary)
+            }
             Button(buttonTitle) {
-                Haptics.tap(); target = ReviewTarget(reference: Date())
+                Haptics.tap(); target = ReviewTarget(reference: Date(), yearsBack: startYears)
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled((refs.isEmpty && toConfirm == 0) || !library.hasAccess)
+            .disabled((refs.isEmpty && toConfirm == 0 && fallback == nil) || !library.hasAccess)
         }
         .padding(18)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -128,6 +150,59 @@ struct HomeView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    private var otherYearsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Años de este día").font(.headline)
+            ForEach(years) { y in
+                Button { target = ReviewTarget(reference: Date(), yearsBack: y.yearsBack) } label: {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(yearTitle(y))
+                            Text(yearSubtitle(y)).font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func yearTitle(_ y: YearInfo) -> String {
+        let unit = y.yearsBack == 1 ? "año" : "años"
+        return "\(y.year) · hace \(y.yearsBack) \(unit)"
+    }
+
+    private func yearSubtitle(_ y: YearInfo) -> String {
+        let p = pendingCount(y.refs)
+        let c = awaitingCount(y.refs)
+        if p > 0 && c > 0 { return "\(p) pendientes · \(c) por confirmar" }
+        if p > 0 { return "\(p) pendientes" }
+        if c > 0 { return "\(c) por confirmar" }
+        return "Revisado · \(y.refs.count) elementos"
+    }
+
+    /// Todos los años (desde hace 1 año) con recuerdos de este mismo día, hasta la foto más antigua.
+    private func loadYears(now: Date) -> [YearInfo] {
+        guard let oldest = library.oldestCaptureDate() else { return [] }
+        let cal = DateRules.calendar
+        let oldestYear = cal.component(.year, from: oldest)
+        var found: [YearInfo] = []
+        var n = 1
+        while true {
+            let interval = DateRules.reviewInterval(for: now, yearsBack: n)
+            let year = cal.component(.year, from: interval.start)
+            if year < oldestYear { break }
+            let refs = library.refs(in: interval)
+            if !refs.isEmpty { found.append(YearInfo(yearsBack: n, year: year, refs: refs)) }
+            n += 1
+        }
+        return found
     }
 
     private var yearProgress: some View {
@@ -174,13 +249,14 @@ struct HomeView: View {
 
     private func reload() {
         library.refreshStatus()
-        guard library.hasAccess else { days = []; return }
+        guard library.hasAccess else { days = []; years = []; return }
         let cal = Calendar.current
         let now = Date()
         days = (0..<15).map { n in
             let ref = cal.date(byAdding: .day, value: -n, to: now)!
             return DayInfo(offset: n, reference: ref, refs: library.refs(in: DateRules.reviewInterval(for: ref)))
         }
+        years = loadYears(now: now)
         let ids = todayPending.map(\.id)
         Task { freeable = await library.totalSize(of: ids) }
     }

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// - La selección se basa SIEMPRE en la fecha original de captura (`PHAsset.creationDate`),
 ///   nunca en la de modificación, usando el calendario y la zona horaria actuales del dispositivo.
-/// - "Hace un año" = `Calendar.date(byAdding: .year, value: -1)`.
+/// - "Hace un año" = `Calendar.date(byAdding: .year, value: -1)`; "hace N años" = `value: -N`.
 /// - REGLA DEL 29 DE FEBRERO:
 ///   1. Si hoy es 29/feb (año bisiesto), el año anterior no tiene 29/feb → se revisa el 28/feb
 ///      del año anterior (el calendario ajusta al último día válido). Como ese día ya se
@@ -18,8 +18,8 @@ enum DateRules {
         calendar.range(of: .day, in: .year, for: date)?.count == 366
     }
 
-    static func reviewInterval(for today: Date) -> DateInterval {
-        let target = calendar.date(byAdding: .year, value: -1, to: today) ?? today
+    static func reviewInterval(for today: Date, yearsBack: Int = 1) -> DateInterval {
+        let target = calendar.date(byAdding: .year, value: -yearsBack, to: today) ?? today
         let start = calendar.startOfDay(for: target)
         let c = calendar.dateComponents([.month, .day], from: today)
         let days = (c.month == 2 && c.day == 28 && !isLeap(today) && isLeap(target)) ? 2 : 1

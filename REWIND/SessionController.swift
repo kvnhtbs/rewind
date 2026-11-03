@@ -1,9 +1,12 @@
+import Foundation
+import Observation
 import Photos
 import SwiftData
-import Foundation
 
 @MainActor @Observable
 final class SessionController {
+    let referenceDay: Date
+    let yearsBack: Int
     let interval: DateInterval
     private let library: PhotoLibraryService
     private let context: ModelContext
@@ -14,8 +17,10 @@ final class SessionController {
     private(set) var session: CleanupSession?
     var lastError: String?
 
-    init(referenceDay: Date, library: PhotoLibraryService, context: ModelContext) {
-        self.interval = DateRules.reviewInterval(for: referenceDay)
+    init(referenceDay: Date, yearsBack: Int = 1, library: PhotoLibraryService, context: ModelContext) {
+        self.referenceDay = referenceDay
+        self.yearsBack = yearsBack
+        self.interval = DateRules.reviewInterval(for: referenceDay, yearsBack: yearsBack)
         self.library = library
         self.context = context
     }
@@ -26,7 +31,13 @@ final class SessionController {
         assets = library.assets(in: interval)
         let key = DateRules.key(for: interval.start)
         let existing = try? context.fetch(FetchDescriptor<CleanupSession>(
-            predicate: #Predicate { $0.dayKey == key })).first
+            predicate: #Predicate<CleanupSession> { $0.dayKey == key })).first
+        if assets.isEmpty && existing == nil {   // año sin recuerdos: no se crea sesión vacía
+            session = nil
+            decisions = [:]
+            refreshPending()
+            return
+        }
         let s = existing ?? CleanupSession(dayKey: key, targetDate: interval.start, foundCount: assets.count)
         if existing == nil { context.insert(s) }
         s.foundCount = assets.count
@@ -100,22 +111,102 @@ final class SessionController {
         try? context.save()
     }
 
-    /// Pide a PhotoKit borrar lo marcado. Solo se invoca tras la doble confirmación en la UI.
-    func confirmDeletion() async -> Bool {
+    // MARK: Favoritos (solo lectura: nunca se modifica la marca original)
+
+    var markedFavoriteAssets: [PHAsset] { markedAssets.filter { $0.isFavorite } }
+    var markedFavoriteCount: Int { markedFavoriteAssets.count }
+
+    struct DeletionOutcome {
+        var deleted = 0
+        var deletedBytes: Int64 = 0
+        var keptFavorites = 0   // favoritos excluidos del borrado: se conservan
+        var unverified = 0      // no verificables: NO se eliminan y siguen marcados
+    }
+
+    /// Pide a PhotoKit borrar lo marcado. Solo se invoca tras la confirmación en la UI.
+    /// - Parameter includeFavorites: el usuario confirmó expresamente eliminar también los favoritos
+    ///   que ve en el resumen. Justo antes de borrar se vuelve a leer el estado de favorito de cada
+    ///   elemento: un favorito no confirmado (o que lo sea ahora y no lo era) NO se elimina, y lo que
+    ///   no se pueda verificar tampoco.
+    /// - Returns: nil si no se eliminó nada por cancelación o error (ver `lastError`).
+    func confirmDeletion(includeFavorites: Bool) async -> DeletionOutcome? {
         let targets = decisions.values.filter { !$0.keep && !$0.deleted }
-        guard !targets.isEmpty else { session?.status = .confirmed; try? context.save(); return true }
-        do {
-            try await library.delete(assetIDs: targets.map(\.assetID))
-            targets.forEach { $0.deleted = true }
+        guard !targets.isEmpty else {
             session?.status = .confirmed
             try? context.save()
-            let copy = decisions; decisions = copy
-            return true
-        } catch {
-            if (error as? PHPhotosError)?.code != .userCancelled {
-                lastError = "No se pudo completar la eliminación: \(error.localizedDescription)"
-            }
-            return false
+            return DeletionOutcome()
         }
+
+        // Favoritos que el usuario vio en el resumen y confirmó eliminar.
+        let confirmedFavorites: Set<String> = includeFavorites
+            ? Set(markedFavoriteAssets.map(\.localIdentifier)) : []
+
+        // Re-comprobación inmediata del estado de favorito.
+        guard let states = library.favoriteStates(for: targets.map(\.assetID)) else {
+            lastError = "No se pudo verificar el estado de favoritos (sin acceso a la biblioteca). No se ha eliminado nada."
+            return nil
+        }
+
+        var toDelete: [Decision] = []
+        var toKeep: [Decision] = []
+        var outcome = DeletionOutcome()
+        for d in targets {
+            switch states[d.assetID] {
+            case .none:
+                outcome.unverified += 1
+            case .some(true):
+                if confirmedFavorites.contains(d.assetID) { toDelete.append(d) } else { toKeep.append(d) }
+            case .some(false):
+                toDelete.append(d)
+            }
+        }
+
+        if !toDelete.isEmpty {
+            do {
+                try await library.delete(assetIDs: toDelete.map(\.assetID))
+            } catch {
+                if (error as? PHPhotosError)?.code != .userCancelled {
+                    lastError = "No se pudo completar la eliminación: \(error.localizedDescription)"
+                }
+                return nil
+            }
+        }
+
+        for d in toDelete {
+            d.deleted = true
+            outcome.deleted += 1
+            outcome.deletedBytes += d.bytes
+        }
+        for d in toKeep { d.keep = true }   // favoritos excluidos: pasan a "conservar" (la marca de Apple Fotos no se toca)
+        outcome.keptFavorites = toKeep.count
+
+        let stillMarked = decisions.values.contains { !$0.keep && !$0.deleted }
+        session?.status = stillMarked ? .reviewed : .confirmed
+        try? context.save()
+        let copy = decisions; decisions = copy   // fuerza actualización de la UI
+        return outcome
+    }
+
+    // MARK: Navegación por años
+
+    var yearsAgoText: String { yearsBack == 1 ? "hace 1 año" : "hace \(yearsBack) años" }
+
+    /// Año natural (p. ej. 2024) que corresponde a "hace N años".
+    func year(yearsBack n: Int) -> Int {
+        let start = DateRules.reviewInterval(for: referenceDay, yearsBack: n).start
+        return DateRules.calendar.component(.year, from: start)
+    }
+
+    /// Siguiente año más antiguo que el actual con fotos o vídeos de este mismo día; salta los
+    /// años vacíos. Sin límite artificial: se detiene al pasar el año de la foto más antigua.
+    func nextYearWithMemories() -> Int? {
+        guard let oldest = library.oldestCaptureDate() else { return nil }
+        let oldestYear = DateRules.calendar.component(.year, from: oldest)
+        var n = yearsBack + 1
+        while year(yearsBack: n) >= oldestYear {
+            if !library.refs(in: DateRules.reviewInterval(for: referenceDay, yearsBack: n)).isEmpty { return n }
+            n += 1
+        }
+        return nil
     }
 }

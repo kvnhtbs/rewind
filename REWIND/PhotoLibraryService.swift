@@ -67,6 +67,35 @@ final class PhotoLibraryService {
         return out
     }
 
+    /// Fecha de captura de la foto/vídeo más antiguo de la biblioteca (tope natural de la navegación por años).
+    func oldestCaptureDate() -> Date? {
+        guard hasAccess else { return nil }
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(
+            format: "(mediaType == %ld OR mediaType == %ld) AND creationDate >= %@",
+            PHAssetMediaType.image.rawValue,
+            PHAssetMediaType.video.rawValue,
+            Date.distantPast as NSDate)
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+        options.fetchLimit = 1
+        return PHAsset.fetchAssets(with: options).firstObject?.creationDate
+    }
+
+    /// Estado de favorito de cada identificador, leído de PhotoKit en este instante (solo lectura:
+    /// la marca de favorito nunca se modifica). Devuelve nil si no se puede verificar la biblioteca
+    /// (sin permiso). Los identificadores que PhotoKit no devuelve NO aparecen en el diccionario:
+    /// son "no verificables".
+    func favoriteStates(for ids: [String]) -> [String: Bool]? {
+        let current = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard current == .authorized || current == .limited else { return nil }
+        let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        var states: [String: Bool] = [:]
+        result.enumerateObjects { asset, _, _ in
+            states[asset.localIdentifier] = asset.isFavorite
+        }
+        return states
+    }
+
     /// Tamaño del recurso principal. "fileSize" no es API pública documentada; si falla devuelve 0.
     static func fileSize(_ asset: PHAsset) -> Int64 {
         guard let resource = PHAssetResource.assetResources(for: asset).first else { return 0 }
