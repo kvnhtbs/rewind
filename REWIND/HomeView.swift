@@ -90,7 +90,7 @@ struct HomeView: View {
                     if !library.hasAccess { deniedBanner }
                     if library.hasAccess { continueCard }
                     if !years.isEmpty { yearsDisclosure }
-                    yearProgress
+                    LibraryProgressCard(decisions: decisions)
                     StatsGrid(stats: StatsData(decisions: decisions))
                 }
                 .padding()
@@ -258,18 +258,6 @@ struct HomeView: View {
             n += 1
         }
         return found
-    }
-
-    private var yearProgress: some View {
-        let cal = Calendar.current
-        let year = cal.component(.year, from: Date())
-        let doy = cal.ordinality(of: .day, in: .year, for: Date()) ?? 1
-        let used = StatsData(decisions: decisions).usageDays.filter { cal.component(.year, from: $0) == year }.count
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Progreso de limpieza de \(year, format: .number.grouping(.never))").font(.headline)
-            ProgressView(value: Double(min(used, doy)), total: Double(doy)).tint(.rwPurple)
-            Text("\(used) de \(doy) días revisados").font(.footnote).foregroundStyle(.secondary)
-        }
     }
 
     private var limitedBanner: some View {

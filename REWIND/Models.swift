@@ -75,16 +75,4 @@ struct StatsData {
             usageDays.insert(cal.startOfDay(for: d.decidedAt))
         }
     }
-
-    var streak: Int {
-        let cal = Calendar.current
-        var day = cal.startOfDay(for: Date())
-        if !usageDays.contains(day) { day = cal.date(byAdding: .day, value: -1, to: day)! }
-        var n = 0
-        while usageDays.contains(day) {
-            n += 1
-            day = cal.date(byAdding: .day, value: -1, to: day)!
-        }
-        return n
-    }
 }
