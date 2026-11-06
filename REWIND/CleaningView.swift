@@ -5,15 +5,6 @@ import AVKit
 
 // MARK: - Apoyo visual local
 
-// Los tokens dinámicos (rwKeep, rwDelete, rwFavorite) se aclaran en modo oscuro para leerse como TEXTO sobre
-// fondo oscuro. Como RELLENO con icono o texto blanco (botones, sellos, avisos sobre fotos) perderían contraste,
-// así que en esos casos se usan los tonos profundos del modo claro en ambos modos (≥ 5:1 con blanco).
-private extension Color {
-    static let rwKeepFill = Color(hex: 0x0F7F47)
-    static let rwDeleteFill = Color(hex: 0xC8323A)
-    static let rwFavoriteFill = Color(hex: 0xD41F58)
-}
-
 /// Botón de operación destructiva (confirmar el borrado): coral, para no confundirlo con navegar o continuar.
 private struct DestructiveButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
