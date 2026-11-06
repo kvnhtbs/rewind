@@ -195,7 +195,6 @@ struct MediaCard: View {
     let asset: PHAsset
     @Environment(PhotoLibraryService.self) private var library
     @State private var image: UIImage?
-    @State private var place: String?
     @State private var player: AVPlayer?
     @State private var playing = false
 
@@ -233,7 +232,6 @@ struct MediaCard: View {
         .onTapGesture { togglePlay() }
         .task(id: asset.localIdentifier) {
             image = await library.image(for: asset, size: CGSize(width: 1080, height: 1440))
-            place = await library.placeName(for: asset)
         }
         .onDisappear { player?.pause() }
     }
@@ -249,7 +247,6 @@ struct MediaCard: View {
             if let d = asset.creationDate {
                 Label(d.formatted(date: .long, time: .shortened), systemImage: "calendar").font(.subheadline.weight(.semibold))
             }
-            if let place { Label(place, systemImage: "mappin.and.ellipse").font(.footnote) }
         }
         .foregroundStyle(.white)
         .padding(16)
