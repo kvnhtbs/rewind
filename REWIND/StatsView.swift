@@ -44,28 +44,31 @@ struct LibraryProgressCard: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Progreso de revisión").font(.headline)
+            Text("Progreso de revisión").font(.rwHeadline)
             if let p = progress {
                 if let f = p.fraction {
-                    ProgressView(value: f).tint(.rwPurple)
+                    RWProgressBar(value: f, height: 6)
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Text("\(p.reviewed) revisados · \(p.pending) pendientes").font(.subheadline)
                     Spacer()
                     if let f = p.fraction {
-                        Text(percentText(f, pending: p.pending)).font(.subheadline.bold())
+                        Text(rwPercentText(f, pending: p.pending)).font(.subheadline.bold())
                     }
                 }
                 Text("Fotos y vídeos de hace más de un año. Los últimos 12 meses aún no se pueden revisar.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if p.awaitingConfirmation > 0 {
-                    Text("\(p.awaitingConfirmation) por confirmar: marcados para eliminar, pero todavía no eliminados.")
+                    Label("\(p.awaitingConfirmation) por confirmar: marcados para eliminar, pero todavía no eliminados.",
+                          systemImage: "clock")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if p.isPartialAccess {
+                    // Mismo estilo violeta que el aviso de acceso limitado de Inicio (el ámbar queda para las rachas).
                     Label("Acceso parcial a Fotos: solo se cuentan las fotos que has permitido. No se muestra porcentaje.",
                           systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote).foregroundStyle(.orange)
+                        .font(.footnote)
+                        .rwNotice()
                 } else if p.fraction == nil {
                     let message: String = (p.reviewed + p.pending == 0)
                         ? "Aún no hay fotos ni vídeos revisables."
@@ -81,13 +84,7 @@ struct LibraryProgressCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func percentText(_ f: Double, pending: Int) -> String {
-        if f > 0 && f < 0.001 { return "<0,1 %" }
-        if pending > 0 && f > 0.999 { return "99,9 %" }   // nunca "100 %" si queda algo pendiente
-        return f.formatted(.percent.precision(.fractionLength(0...1)))
+        .rwCard()
     }
 }
 
@@ -104,7 +101,7 @@ struct StatsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     LibraryProgressCard(decisions: decisions)
-                    StatTile(title: "días consecutivos", value: streakText, symbol: "flame.fill", color: .orange)
+                    StatTile(title: "días consecutivos", value: streakText, symbol: "flame.fill", color: .rwStreak)
                     Text("Los días sin recuerdos que revisar no rompen la racha. Hoy no la rompe hasta que termine el día.")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 12) {

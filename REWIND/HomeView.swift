@@ -206,7 +206,7 @@ struct HomeView: View {
         let c = awaitingCount(s.refs)
         let start = DateRules.reviewInterval(for: s.reference, yearsBack: s.yearsBack).start
         heroChips(label: originText(s, pending: p),
-                  symbol: (c > 0 && p == 0) ? "checkmark.shield.fill" : "calendar.badge.clock")
+                  symbol: (c > 0 && p == 0) ? "clock" : "calendar.badge.clock")
         VStack(alignment: .leading, spacing: 2) {
             Text(start, format: .dateTime.day().month(.wide).year())
                 .font(.rwHeroTitle)
@@ -426,8 +426,7 @@ struct HomeView: View {
             Spacer()
             Button(button, action: action).font(.footnote.bold())
         }
-        .padding(12)
-        .background(Color.rwPurple.opacity(0.12), in: RoundedRectangle(cornerRadius: RWRadius.chip, style: .continuous))
+        .rwNotice()
     }
 
     // MARK: Carga de datos (sin cambios de lógica)

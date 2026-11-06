@@ -47,6 +47,15 @@ extension Color {
     static let rwFavorite = Color.rwDynamic(light: 0xD41F58, dark: 0xFF6B94)
     /// Rachas y motivación.
     static let rwStreak = Color.rwDynamic(light: 0xB45309, dark: 0xFFB340)
+    // Los tokens dinámicos (rwKeep, rwDelete, rwFavorite) se aclaran en modo oscuro para leerse como TEXTO sobre
+    // fondo oscuro. Como RELLENO con icono o texto blanco (botones, sellos, avisos sobre fotos) perderían contraste,
+    // así que en esos casos se usan los tonos profundos del modo claro en ambos modos (≥ 5:1 con blanco).
+    /// Relleno de «conservar» (texto/icono blanco encima). Fijo en claro y oscuro.
+    static let rwKeepFill = Color(hex: 0x0F7F47)
+    /// Relleno de «eliminar» (texto/icono blanco encima). Fijo en claro y oscuro.
+    static let rwDeleteFill = Color(hex: 0xC8323A)
+    /// Relleno de favoritos (texto/icono blanco encima). Fijo en claro y oscuro.
+    static let rwFavoriteFill = Color(hex: 0xD41F58)
     /// Ámbar sobre el degradado de la tarjeta protagonista (fijo en claro y oscuro).
     static let rwStreakOnHero = Color(hex: 0xFFC857)
     /// Texto del botón blanco de la tarjeta protagonista.
@@ -143,8 +152,20 @@ struct RWCardModifier: ViewModifier {
     }
 }
 
+/// Aviso informativo en violeta (acceso limitado o parcial a Fotos). El ámbar queda reservado a las rachas.
+struct RWNoticeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.rwPurple.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: RWRadius.chip, style: .continuous))
+    }
+}
+
 extension View {
     func rwCard() -> some View { modifier(RWCardModifier()) }
+    func rwNotice() -> some View { modifier(RWNoticeModifier()) }
 }
 
 /// Barra de progreso. La animación se desactiva con «Reducir movimiento».
