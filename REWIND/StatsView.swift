@@ -59,13 +59,19 @@ struct LibraryProgressCard: View {
                 Text("Fotos y vídeos de hace más de un año. Los últimos 12 meses aún no se pueden revisar.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if p.awaitingConfirmation > 0 {
-                    Text("\(p.awaitingConfirmation) por confirmar: marcados para eliminar, pero todavía no eliminados.")
+                    Label("\(p.awaitingConfirmation) por confirmar: marcados para eliminar, pero todavía no eliminados.",
+                          systemImage: "clock")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if p.isPartialAccess {
+                    // Mismo estilo violeta que el aviso de acceso limitado de Inicio (el ámbar queda para las rachas).
                     Label("Acceso parcial a Fotos: solo se cuentan las fotos que has permitido. No se muestra porcentaje.",
                           systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote).foregroundStyle(.orange)
+                        .font(.footnote)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.rwPurple.opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: RWRadius.chip, style: .continuous))
                 } else if p.fraction == nil {
                     let message: String = (p.reviewed + p.pending == 0)
                         ? "Aún no hay fotos ni vídeos revisables."
