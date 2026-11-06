@@ -403,7 +403,7 @@ struct SummaryView: View {
             Button("Reiniciar sesión", role: .destructive) { controller.restart() }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("Se descartarán tus decisiones de hoy y volverás a empezar. No se elimina ninguna foto.")
+            Text("Se descartarán las decisiones de esta sesión pendientes de confirmar y volverás a empezar. No se elimina ninguna foto.")
         }
     }
 
