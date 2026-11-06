@@ -82,6 +82,8 @@ extension Font {
     static let rwHeroTitle = Font.system(.title, design: .rounded, weight: .bold)
     static let rwTitle = Font.system(.title2, design: .rounded, weight: .bold)
     static let rwHeadline = Font.system(.headline, design: .rounded, weight: .semibold)
+    /// Etiquetas de botones y sellos (mismo peso en todos).
+    static let rwHeadlineBold = Font.system(.headline, design: .rounded, weight: .bold)
 }
 
 enum Keys {
@@ -99,7 +101,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(.headline, design: .rounded, weight: .bold))
+            .font(.rwHeadlineBold)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
             .foregroundStyle(.white)
@@ -115,12 +117,28 @@ struct HeroButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(.headline, design: .rounded, weight: .bold))
+            .font(.rwHeadlineBold)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 18)
             .foregroundStyle(Color.rwOnHero)
             .background(Color.white, in: RoundedRectangle(cornerRadius: RWRadius.button, style: .continuous))
             .opacity(configuration.isPressed ? 0.9 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// Botón de operación destructiva (confirmar el borrado): coral, para no confundirlo con navegar o continuar.
+struct DestructiveButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .foregroundStyle(.white)
+            .background(Color.rwDeleteFill.opacity(enabled ? 1 : 0.4),
+                        in: RoundedRectangle(cornerRadius: RWRadius.button, style: .continuous))
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isPressed)
     }
