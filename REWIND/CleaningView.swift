@@ -283,6 +283,7 @@ struct SummaryView: View {
     let onDone: () -> Void
     let onNextYear: (Int) -> Void
     @State private var confirming = false
+    @State private var confirmingRestart = false
     @State private var working = false
     @State private var showKept = false
     @State private var resultText: String?
@@ -351,7 +352,7 @@ struct SummaryView: View {
                 if marked.isEmpty {
                     finishedBlock
                 }
-                Button("Reiniciar sesión") { controller.restart() }
+                Button("Reiniciar sesión") { confirmingRestart = true }
                     .frame(maxWidth: .infinity).foregroundStyle(.secondary)
             }
             .padding()
@@ -397,6 +398,12 @@ struct SummaryView: View {
             Button("Cancelar", role: .cancel) {}
         } message: {
             Text(dialogMessage)
+        }
+        .confirmationDialog("¿Reiniciar la sesión?", isPresented: $confirmingRestart, titleVisibility: .visible) {
+            Button("Reiniciar sesión", role: .destructive) { controller.restart() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se descartarán tus decisiones de hoy y volverás a empezar. No se elimina ninguna foto.")
         }
     }
 
