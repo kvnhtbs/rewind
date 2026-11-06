@@ -44,16 +44,16 @@ struct LibraryProgressCard: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Progreso de revisión").font(.headline)
+            Text("Progreso de revisión").font(.rwHeadline)
             if let p = progress {
                 if let f = p.fraction {
-                    ProgressView(value: f).tint(.rwPurple)
+                    RWProgressBar(value: f, height: 6)
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Text("\(p.reviewed) revisados · \(p.pending) pendientes").font(.subheadline)
                     Spacer()
                     if let f = p.fraction {
-                        Text(percentText(f, pending: p.pending)).font(.subheadline.bold())
+                        Text(rwPercentText(f, pending: p.pending)).font(.subheadline.bold())
                     }
                 }
                 Text("Fotos y vídeos de hace más de un año. Los últimos 12 meses aún no se pueden revisar.")
@@ -87,13 +87,7 @@ struct LibraryProgressCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func percentText(_ f: Double, pending: Int) -> String {
-        if f > 0 && f < 0.001 { return "<0,1 %" }
-        if pending > 0 && f > 0.999 { return "99,9 %" }   // nunca "100 %" si queda algo pendiente
-        return f.formatted(.percent.precision(.fractionLength(0...1)))
+        .rwCard()
     }
 }
 
@@ -110,7 +104,7 @@ struct StatsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     LibraryProgressCard(decisions: decisions)
-                    StatTile(title: "días consecutivos", value: streakText, symbol: "flame.fill", color: .orange)
+                    StatTile(title: "días consecutivos", value: streakText, symbol: "flame.fill", color: .rwStreak)
                     Text("Los días sin recuerdos que revisar no rompen la racha. Hoy no la rompe hasta que termine el día.")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
