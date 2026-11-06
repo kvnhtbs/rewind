@@ -8,7 +8,7 @@ struct OnboardingView: View {
     private let steps: [(String, String)] = [
         ("clock.arrow.circlepath", "Cada día recuperamos tus fotos y vídeos de hace un año."),
         ("hand.draw.fill", "Desliza a la derecha para conservar y a la izquierda para eliminar."),
-        ("checkmark.shield.fill", "Confirma la limpieza cuando termines. Nada se borra sin tu permiso.")
+        ("lock.shield.fill", "Confirma la limpieza cuando termines. Nada se borra sin tu permiso.")
     ]
 
     var body: some View {
