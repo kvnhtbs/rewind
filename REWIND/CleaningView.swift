@@ -423,7 +423,7 @@ struct SummaryView: View {
     private var finishedBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let n = nextYear {
-                Text("¿Quieres revisar otro año atrás?").font(.headline)
+                Text("¿Quieres revisar otro año atrás?").font(.rwHeadline)
                 Text("Hay recuerdos de este día en \(yearLabel(n)).")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button("Sí, revisar \(yearLabel(n))") { Haptics.tap(); onNextYear(n) }
