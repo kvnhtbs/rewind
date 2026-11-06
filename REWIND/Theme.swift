@@ -152,8 +152,20 @@ struct RWCardModifier: ViewModifier {
     }
 }
 
+/// Aviso informativo en violeta (acceso limitado o parcial a Fotos). El ámbar queda reservado a las rachas.
+struct RWNoticeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.rwPurple.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: RWRadius.chip, style: .continuous))
+    }
+}
+
 extension View {
     func rwCard() -> some View { modifier(RWCardModifier()) }
+    func rwNotice() -> some View { modifier(RWNoticeModifier()) }
 }
 
 /// Barra de progreso. La animación se desactiva con «Reducir movimiento».

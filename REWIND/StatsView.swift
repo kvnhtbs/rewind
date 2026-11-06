@@ -68,10 +68,7 @@ struct LibraryProgressCard: View {
                     Label("Acceso parcial a Fotos: solo se cuentan las fotos que has permitido. No se muestra porcentaje.",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.rwPurple.opacity(0.12),
-                                    in: RoundedRectangle(cornerRadius: RWRadius.chip, style: .continuous))
+                        .rwNotice()
                 } else if p.fraction == nil {
                     let message: String = (p.reviewed + p.pending == 0)
                         ? "Aún no hay fotos ni vídeos revisables."
