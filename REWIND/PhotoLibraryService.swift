@@ -4,7 +4,6 @@ import Photos
 import PhotosUI
 import UIKit
 import AVFoundation
-import CoreLocation
 
 struct AssetRef: Hashable {
     let id: String
@@ -52,7 +51,6 @@ final class PhotoLibraryService {
     var hasAccess: Bool { status == .authorized || status == .limited }
 
     @ObservationIgnored private let imageCache = NSCache<NSString, UIImage>()
-    @ObservationIgnored private let geocoder = CLGeocoder()
     @ObservationIgnored private var progressCache: (key: Int, at: Date, value: LibraryProgress)?
     @ObservationIgnored private var streakCache: (key: String, at: Date, value: StreakResult)?
     @ObservationIgnored private var memoriesCache: [String: Bool] = [:]
@@ -324,14 +322,6 @@ final class PhotoLibraryService {
             }
         }
         return item
-    }
-
-    func placeName(for asset: PHAsset) async -> String? {
-        guard let location = asset.location else { return nil }
-        let marks = try? await geocoder.reverseGeocodeLocation(location)
-        guard let mark = marks?.first else { return nil }
-        let text = [mark.locality, mark.country].compactMap { $0 }.joined(separator: ", ")
-        return text.isEmpty ? nil : text
     }
 
     // MARK: Borrado (solo tras confirmación explícita en la UI)

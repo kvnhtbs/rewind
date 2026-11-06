@@ -5,22 +5,6 @@ import AVKit
 
 // MARK: - Apoyo visual local
 
-/// Botón de operación destructiva (confirmar el borrado): coral, para no confundirlo con navegar o continuar.
-private struct DestructiveButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var enabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .foregroundStyle(.white)
-            .background(Color.rwDeleteFill.opacity(enabled ? 1 : 0.4),
-                        in: RoundedRectangle(cornerRadius: RWRadius.button, style: .continuous))
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isPressed)
-    }
-}
-
 /// Estado que se muestra en la esquina de una miniatura del resumen.
 enum ThumbState { case keep, delete }
 
@@ -133,7 +117,7 @@ struct SwipeDeck: View {
             .overlay(alignment: .top) {
                 if let f = flash {
                     Label(f.text, systemImage: f.keep ? "checkmark" : "trash.fill")
-                        .font(.system(.headline, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                        .font(.rwHeadlineBold).foregroundStyle(.white)
                         .padding(.horizontal, 18).padding(.vertical, 10)
                         .background(f.keep ? Color.rwKeepFill : Color.rwDeleteFill, in: Capsule())
                         .padding(.top, 12)
@@ -160,7 +144,7 @@ struct SwipeDeck: View {
                 .fill(fill.opacity(0.4))
             Label(p > 0 ? "¡Guardado!" : leftText,
                   systemImage: p > 0 ? "checkmark" : "trash.fill")
-                .font(.system(.title2, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                .font(.rwTitle).foregroundStyle(.white)
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .background(fill, in: Capsule())
         }
@@ -173,7 +157,7 @@ struct SwipeDeck: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                    .font(.rwHeroTitle).foregroundStyle(.white)
                     .frame(width: 72, height: 72).background(fill, in: Circle())
                 Text(label).font(.footnote.weight(.semibold)).foregroundStyle(textColor)
             }
@@ -211,7 +195,6 @@ struct MediaCard: View {
     let asset: PHAsset
     @Environment(PhotoLibraryService.self) private var library
     @State private var image: UIImage?
-    @State private var place: String?
     @State private var player: AVPlayer?
     @State private var playing = false
 
@@ -249,7 +232,6 @@ struct MediaCard: View {
         .onTapGesture { togglePlay() }
         .task(id: asset.localIdentifier) {
             image = await library.image(for: asset, size: CGSize(width: 1080, height: 1440))
-            place = await library.placeName(for: asset)
         }
         .onDisappear { player?.pause() }
     }
@@ -265,7 +247,6 @@ struct MediaCard: View {
             if let d = asset.creationDate {
                 Label(d.formatted(date: .long, time: .shortened), systemImage: "calendar").font(.subheadline.weight(.semibold))
             }
-            if let place { Label(place, systemImage: "mappin.and.ellipse").font(.footnote) }
         }
         .foregroundStyle(.white)
         .padding(16)
@@ -302,6 +283,7 @@ struct SummaryView: View {
     let onDone: () -> Void
     let onNextYear: (Int) -> Void
     @State private var confirming = false
+    @State private var confirmingRestart = false
     @State private var working = false
     @State private var showKept = false
     @State private var resultText: String?
@@ -370,7 +352,7 @@ struct SummaryView: View {
                 if marked.isEmpty {
                     finishedBlock
                 }
-                Button("Reiniciar sesión") { controller.restart() }
+                Button("Reiniciar sesión") { confirmingRestart = true }
                     .frame(maxWidth: .infinity).foregroundStyle(.secondary)
             }
             .padding()
@@ -380,7 +362,7 @@ struct SummaryView: View {
                 Button { confirming = true } label: {
                     VStack(spacing: 2) {
                         Label("CONFIRMAR LIMPIEZA", systemImage: "trash.fill")
-                            .font(.system(.headline, design: .rounded, weight: .bold))
+                            .font(.rwHeadlineBold)
                         Text(confirmSubtitle(total: total, favorites: favoriteCount, bytes: controller.markedBytes))
                             .font(.footnote)
                             .foregroundStyle(Color.white.opacity(0.92))
@@ -416,6 +398,12 @@ struct SummaryView: View {
             Button("Cancelar", role: .cancel) {}
         } message: {
             Text(dialogMessage)
+        }
+        .confirmationDialog("¿Reiniciar la sesión?", isPresented: $confirmingRestart, titleVisibility: .visible) {
+            Button("Reiniciar sesión", role: .destructive) { controller.restart() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se descartarán las decisiones de esta sesión pendientes de confirmar y volverás a empezar. No se elimina ninguna foto.")
         }
     }
 
